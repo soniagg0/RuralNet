@@ -1,0 +1,133 @@
+# -*- coding: utf-8 -*-
+import numpy as np
+import time
+import serial
+import threading
+import queue
+from scipy import signal
+from bitalino import BITalino
+
+BITALINO_ADDRESS = "/dev/rfcomm0"
+ARDUINO_PORT = "/dev/serial0"
+FS = 1000             
+CHUNK = 20             
+BUFFER_SIZE = 300    
+
+# Umbral en mV de contracción fuerte (doctor puede interpretarlo)
+EVENT_THRESHOLD_MV = 0.6    
+
+q = queue.Queue()
+
+# FILTROS IGUALES PERO AHORA APLICADOS A mV (NO ADC)
+b_notch, a_notch = signal.iirnotch(50.0, 30.0, FS)
+b_band, a_band = signal.butter(4, [20.0 / (FS / 2.0), 400.0 / (FS / 2.0)], btype='band')
+b_env, a_env = signal.butter(4, 5.0 / (FS / 2.0), btype='low')
+
+# Buffer en mV
+emg_buffer = np.zeros(BUFFER_SIZE)
+
+print("Conectando BITalino...")
+device = BITalino(BITALINO_ADDRESS)
+device.start(FS, [0])
+print("BITalino conectado.")
+
+print("Conectando Arduino...")
+arduino = serial.Serial(ARDUINO_PORT, 9600, timeout=0.1)
+time.sleep(2)
+print("Arduino conectado.")
+
+
+def adc_to_mv(adc):
+    """Convierte ADC → mV usando la fórmula oficial del manual de BITalino."""
+    volts = ((adc / 1024.0) - 0.5) * (3.3 / 1009.0)
+    return volts * 1000.0  # mV
+
+
+def emg_reader_thread():
+    global emg_buffer
+    while True:
+        samples = device.read(CHUNK)
+        adc_raw = samples[:, 5]    # valor ADC
+
+        # Conversión ADC → mV REALES
+        emg_mv = adc_to_mv(adc_raw)
+
+        # Actualizar buffer (en mV)
+        emg_buffer = np.roll(emg_buffer, -CHUNK)
+        emg_buffer[-CHUNK:] = emg_mv
+
+        # Filtrado (en mV)
+        notch = signal.filtfilt(b_notch, a_notch, emg_buffer)
+        band = signal.filtfilt(b_band, a_band, notch)
+        rect = np.abs(band)
+        env = signal.filtfilt(b_env, a_env, rect)
+
+        # Valor final en milivoltios
+        val_mv = np.mean(env[-5:]) 
+
+        if val_mv >= EVENT_THRESHOLD_MV:
+            q.put(("EVENTO_MUSCULAR", val_mv))
+        else:
+            q.put(("NORMAL", val_mv))
+
+
+def arduino_sender_thread():
+    max_msg = 5
+    tiempo_envio_normal = 3600  # 1 hora
+    ultimo_envio = time.time()
+
+    while True:
+        try:
+            estado, valor_mv = q.get(timeout=0.1)
+        except queue.Empty:
+            estado, valor_mv = None, None
+
+        ahora = time.time()
+
+        if estado == "EVENTO_MUSCULAR":
+            contador = 0
+            while contador < max_msg:
+                msg = f"{valor_mv:.3f} mV\n"
+                arduino.write(msg.encode("utf-8"))
+                print(f"Contracción detectada: {valor_mv:.3f} mV")
+                contador += 1
+                time.sleep(0.5)
+
+        if ahora - ultimo_envio >= tiempo_envio_normal:
+            msg = f"{valor_mv:.3f} mV\n"
+            arduino.write(msg.encode("utf-8"))
+            print(f"Envío periódico: {valor_mv:.3f} mV")
+            ultimo_envio = ahora
+
+
+def arduino_listener_thread():
+    while True:
+        if arduino.in_waiting > 0:
+            line = arduino.readline()
+            if line:
+                print(f"Arduino: {line}")
+        time.sleep(0.01)
+
+
+t1 = threading.Thread(target=emg_reader_thread, daemon=True)
+t2 = threading.Thread(target=arduino_sender_thread, daemon=True)
+t3 = threading.Thread(target=arduino_listener_thread, daemon=True)
+
+t1.start()
+t2.start()
+t3.start()
+
+print("Sistema EMG en marcha (Ctrl+C para detener).")
+
+try:
+    while True:
+        time.sleep(1)
+
+except KeyboardInterrupt:
+    print("\nDeteniendo sistema...")
+
+finally:
+    device.stop()
+    device.close()
+    arduino.close()
+    print("Listo.")
