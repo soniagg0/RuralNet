@@ -1,0 +1,149 @@
+/*
+   LoRaWAN + UART Raspberry + Downlink/Uplink + Debug Claro
+   Arduino MKR WAN 1310
+*/
+
+#include <MKRWAN.h>
+
+LoRaModem modem;
+
+#include "arduino_secrets.h"
+
+String appEui = SECRET_APP_EUI;
+String appKey = SECRET_APP_KEY;
+
+uint8_t receivedBytes[255];
+uint8_t receivedLength = 0;
+
+// Último mensaje recibido desde Raspberry
+String raspberryMessage = "";
+
+bool waitingMessageShown = false;
+
+void setup() {
+
+  Serial.begin(115200);
+  while (!Serial);
+
+  Serial.println("\n=======================================");
+  Serial.println("=== Arduino MKR WAN 1310 INICIADO ===");
+  Serial.println("=======================================");
+
+  // UART hacia Raspberry Pi
+  Serial1.begin(9600);
+  Serial.println("UART lista (Arduino ↔ Raspberry Pi)");
+
+  // Iniciar LoRaWAN
+  if (!modem.begin(EU868)) {
+    Serial.println("ERROR: No se pudo iniciar el módulo LoRa");
+    while (1);
+  }
+
+  Serial.print("Device EUI: ");
+  Serial.println(modem.deviceEUI());
+
+  int connected = modem.joinOTAA(appEui, appKey);
+  if (!connected) {
+    Serial.println("ERROR al conectar OTAA con TTN");
+    while (1);
+  }
+
+  Serial.println("Conectado correctamente a LoRaWAN (TTN).");
+  modem.minPollInterval(60);
+
+  // Mostrar mensaje una vez al inicio
+  Serial.println("\nEsperando datos de Raspberry...");
+  waitingMessageShown = true;
+}
+
+void loop() {
+
+  // ============================================================
+  // 1) RASPBERRY → ARDUINO → TTN
+  // ============================================================
+  if (Serial1.available()) {
+
+    waitingMessageShown = false;   // permitimos mostrarlo después
+
+    Serial.println("\n=== MENSAJE RECIBIDO DESDE RASPBERRY PI ===");
+
+    // Leer texto de Raspberry hasta '\n'
+    raspberryMessage = Serial1.readStringUntil('\n');
+
+    Serial.print("Texto recibido: ");
+    Serial.println(raspberryMessage);
+
+    Serial.print("HEX: ");
+    for (int k = 0; k < raspberryMessage.length(); k++) {
+      Serial.print((byte)raspberryMessage[k], HEX);
+      Serial.print(" ");
+    }
+    Serial.println();
+
+    // --- ENVIAR A TTN EL MENSAJE ---
+    Serial.println("Enviando este mensaje a The Things Network...");
+
+    modem.beginPacket();
+    modem.print(raspberryMessage);         // ENVÍA TEXTO COMO BYTES
+    int ok = modem.endPacket(true);
+
+    if (ok > 0)
+      Serial.println("→ Enviado a TTN correctamente.");
+    else
+      Serial.println("→ ERROR enviando a TTN.");
+
+    // Mostrar mensaje de espera SOLO UNA VEZ
+    Serial.println("\nEsperando datos de Raspberry...");
+    waitingMessageShown = true;
+  }
+
+  // ============================================================
+  // 2) TTN → ARDUINO → RASPBERRY  (DOWNLINK)
+  // ============================================================
+  if (modem.available()) {
+
+    waitingMessageShown = false;
+
+    Serial.println("\n=== DOWNLINK RECIBIDO DESDE TTN ===");
+
+    int count = 0;
+    while (modem.available()) {
+      receivedBytes[count] = modem.read();
+      count++;
+    }
+    receivedLength = count;
+
+    // Mostrar como texto ASCII
+    Serial.print("Texto: ");
+    for (int j = 0; j < receivedLength; j++)
+      Serial.print((char)receivedBytes[j]);
+    Serial.println();
+
+    // Mostrar en HEX
+    Serial.print("HEX: ");
+    for (int j = 0; j < receivedLength; j++) {
+      Serial.print(receivedBytes[j], HEX);
+      Serial.print(" ");
+    }
+    Serial.println();
+
+    // Enviar EXACTAMENTE los bytes a Raspberry
+    Serial1.write(receivedBytes, receivedLength);
+
+    Serial.println("→ Downlink reenviado a Raspberry.\n");
+
+    // Mostrar mensaje de espera solo una vez
+    Serial.println("Esperando datos de Raspberry...");
+    waitingMessageShown = true;
+  }
+
+  // ============================================================
+  // Mostrar mensaje de espera 
+  // ============================================================
+  if (!Serial1.available() && !modem.available() && !waitingMessageShown) {
+    Serial.println("\nEsperando datos de Raspberry...");
+    waitingMessageShown = true;
+  }
+
+  delay(20);
+}
