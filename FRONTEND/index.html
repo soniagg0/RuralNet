@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<title>PBE-TTN Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f0f2f5; color:#333; }
+  header { background:#1f3a93; padding:15px 30px; color:white; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 5px rgba(0,0,0,0.2); }
+  header h1 { font-size:28px; }
+  nav button { background:#fff; color:#1f3a93; border:none; padding:10px 20px; border-radius:8px; margin-left:10px; cursor:pointer; font-weight:bold; transition:0.3s; }
+  nav button.active, nav button:hover { background:#ffcc00; color:#333; }
+  .container { max-width:1200px; margin:30px auto; padding:0 20px; }
+  .tab-content { display:none; margin-top:20px; animation:fadeIn 0.3s ease-in-out; }
+  .tab-content.active { display:block; }
+  @keyframes fadeIn { from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+
+  .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px,1fr)); gap:20px; }
+  .card { background:#fff; padding:15px; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.1); transition:0.3s; }
+  .card:hover { transform:translateY(-5px); box-shadow:0 8px 20px rgba(0,0,0,0.15); }
+  .card h3 { font-size:18px; margin-bottom:10px; color:#1f3a93; }
+  .card pre { white-space:pre-wrap; word-wrap:break-word; font-size:14px; background:#f7f9fc; padding:10px; border-radius:8px; }
+
+  /* ----------- OPCIONS CLICABLES ----------- */
+  .options-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+    margin-top: 25px;
+  }
+
+  .option-card {
+    cursor: pointer;
+    border-radius: 16px;
+    transition: 0.25s;
+  }
+
+  .card-content {
+    background: white;
+    padding: 20px;
+    border-radius: 16px;
+    border: 3px solid #1f3a93;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transition: 0.3s;
+    text-align: center;
+  }
+
+  .card-content h3 { font-size: 22px; margin-bottom: 8px; }
+  .card-content p { font-size: 15px; opacity: 0.8; }
+
+  .option-card:hover .card-content {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  }
+
+  .card-content.ok { border-color: #27ae60; }
+  .card-content.emergency { border-color: #e74c3c; }
+  .card-content.medical { border-color: #8e44ad; }
+
+  .option-card.selected .card-content {
+    background: #1f3a93;
+    color: white;
+    border-color: #ffcc00;
+    transform: scale(1.05);
+    box-shadow: 0 12px 28px rgba(0,0,0,0.25);
+  }
+
+  #sendBtn {
+    margin-top: 25px;
+    width: 100%;
+    padding: 15px;
+    font-size: 18px;
+    border-radius: 12px;
+    background: #1f3a93;
+    color: white;
+    border: none;
+    font-weight: bold;
+    transition: 0.3s;
+  }
+
+  #sendBtn:hover {
+    background: #163573;
+    transform: translateY(-2px);
+  }
+
+  #sendStatus {
+    margin-top: 10px;
+    font-weight: bold;
+    font-size: 17px;
+  }
+
+  #chart { background:#fff; border-radius:12px; padding:10px; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+
+  /* Export buttons */
+  .export-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-top: 15px;
+  }
+
+  .export-buttons button {
+    padding: 14px 25px;
+    font-size: 16px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.3s;
+    flex: 1 1 220px;
+    text-align: center;
+  }
+
+  .export-buttons button:hover { transform: translateY(-2px); opacity: 0.9; }
+
+  #exportSensors { background: #27ae60; color: white; }
+  #exportSensors:hover { background: #1e8449; }
+
+  #exportApp { background: #e74c3c; color: white; }
+  #exportApp:hover { background: #c0392b; }
+
+  #exportMongo { background: #ffcc00; color: #333; }
+  #exportMongo:hover { background: #e6b800; }
+
+  #exportStatus {
+    margin-top: 12px;
+    font-weight: bold;
+    font-size: 16px;
+  }
+</style>
+</head>
+<body>
+  
+<header>
+  <h1>PBE-TTN Dashboard</h1>
+  <nav>
+    <button data-tab="messages" class="active">Missatges TTN</button>
+    <button data-tab="sent">Enviats</button>
+    <button data-tab="send">Enviar Dades</button>
+    <button data-tab="graf">Gràfics</button>
+    <button data-tab="export">Exportar</button>
+    <button data-tab="about">About</button>
+  </nav>
+</header>
+
+<div class="container">
+
+  <!-- SENSOR MESSAGES -->
+  <div id="messages" class="tab-content active">
+    <h2>Missatges TTN (Sensors)</h2>
+    <div class="cards" id="messagesCards"></div>
+  </div>
+
+  <!-- SENT MESSAGES -->
+  <div id="sent" class="tab-content">
+    <h2>Missatges Enviats</h2>
+    <div class="cards" id="sentCards"></div>
+  </div>
+
+  <!-- SEND DATA -->
+  <div id="send" class="tab-content form-container">
+    <h2>Enviar Dades</h2>
+    <div class="options-container">
+      <div class="option-card" data-value='{"status":"You are ok"}'>
+        <div class="card-content ok">
+          <h3>🙂 You are OK</h3>
+          <p>Tot està correcte</p>
+        </div>
+      </div>
+      <div class="option-card" data-value='{"status":"Call 112 for more information"}'>
+        <div class="card-content emergency">
+          <h3>⚠️ Call 112</h3>
+          <p>Demana informació urgent</p>
+        </div>
+      </div>
+      <div class="option-card" data-value='{"status":"Medical aids arriving"}'>
+        <div class="card-content medical">
+          <h3>🚑 Medical aids arriving</h3>
+          <p>Assistència mèdica en camí</p>
+        </div>
+      </div>
+    </div>
+    <button id="sendBtn">Enviar</button>
+    <p id="sendStatus" class="status"></p>
+  </div>
+
+  <!-- GRAPH -->
+  <div id="graf" class="tab-content">
+    <h2>GRÀFICS</h2>
+    <canvas id="chart" width="400" height="200"></canvas>
+  </div>
+
+  <!-- EXPORT -->
+  <div id="export" class="tab-content">
+    <h2>EXPORTAR DADES</h2>
+    <div class="export-buttons">
+      <button id="exportSensors">Exportar Sensors</button>
+      <button id="exportApp">Exportar Missatges App</button>
+      <button id="exportMongo">Exportar BD Completa</button>
+    </div>
+    <p id="exportStatus"></p>
+  </div>
+
+  <!-- ABOUT -->
+  <div id="about" class="tab-content">
+    <h2>About</h2>
+    <p>Nowadays, with the new technological breakthroughs, society has developed new ways to communicate and share information. Thanks to that, many crucial fields such as healthcare have started to use technology to help improve lives around the world.</p>
+
+    <p>We are third-year degree students with a strong interest in technology, telecommunications, and development. During this project, we have created a system designed to detect medical problems in remote environments. Not only was the system engineered, but an app was also developed to track the data emerging from the main sensor.</p>
+
+    <p>Based on three main components — <b>LoRa Gateway, Raspberry Pi, and Arduino</b> — this project has made it possible to monitor and analyze health data efficiently and reliably.</p>
+
+    <p>We are very pleased to share this with the world and to help new people! :)</p>
+
+    <p><i>Pau, Sonia, Paula & Lua</i></p>
+  </div>
+</div>
+
+<script>
+  /* --------- TABS --------- */
+  const tabButtons = document.querySelectorAll("nav button");
+  const tabContents = document.querySelectorAll(".tab-content");
+  tabButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = btn.getAttribute("data-tab");
+      tabContents.forEach(tc => tc.classList.remove("active"));
+      tabButtons.forEach(b => b.classList.remove("active"));
+      document.getElementById(target).classList.add("active");
+      btn.classList.add("active");
+    });
+  });
+
+  /* --------- FETCH MESSAGES --------- */
+  async function fetchMessages() {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/data");
+      const data = await response.json();
+
+      const messagesCards = document.getElementById("messagesCards");
+      const sentCards = document.getElementById("sentCards");
+
+      messagesCards.innerHTML = "";
+      sentCards.innerHTML = "";
+
+      data.data.forEach((item, index) => {
+        const isSensorData = !!item.uplink_message;
+        const isSentData = !item.uplink_message;
+
+        if (isSensorData) {
+          const payload = item.uplink_message.decoded_payload || item;
+          const card = document.createElement("div");
+          card.classList.add("card");
+          card.innerHTML = `<h3>${index+1} - ${item.device_id || "-"}</h3>
+                            <pre>${JSON.stringify(payload, null, 2)}</pre>`;
+          messagesCards.appendChild(card);
+        }
+
+        if (isSentData) {
+          const card = document.createElement("div");
+          card.classList.add("card");
+          card.innerHTML = `<h3>Enviat</h3>
+                            <pre>${JSON.stringify(item, null, 2)}</pre>`;
+          sentCards.appendChild(card);
+        }
+      });
+    } catch (e) { console.error(e); }
+  }
+  setInterval(fetchMessages, 2000);
+  fetchMessages();
+
+  /* --------- TARGETES CLICABLES --------- */
+  let selectedValue = null;
+  document.querySelectorAll(".option-card").forEach(card => {
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".option-card").forEach(c => c.classList.remove("selected"));
+      card.classList.add("selected");
+      selectedValue = card.getAttribute("data-value");
+    });
+  });
+
+  /* --------- SEND DATA --------- */
+  const sendStatus = document.getElementById("sendStatus");
+  document.getElementById("sendBtn").addEventListener("click", async () => {
+    if (!selectedValue) {
+      sendStatus.textContent = "Selecciona una opció!";
+      sendStatus.style.color = "red";
+      return;
+    }
+    const payload = JSON.parse(selectedValue);
+    try {
+      const response = await fetch("http://127.0.0.1:8000/webhook/ttn", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        sendStatus.textContent = "Missatge enviat! ✅";
+        sendStatus.style.color = "green";
+      } else {
+        sendStatus.textContent = "Error en enviar ❌";
+        sendStatus.style.color = "red";
+      }
+    } catch (e) {
+      sendStatus.textContent = "Error de connexió ❌";
+      sendStatus.style.color = "red";
+    }
+  });
+
+  /* --------- GRAPH --------- */
+/* --------- GRAPH --------- */
+let chart;
+async function updateChart() {
+    try {
+        const response = await fetch("http://127.0.0.1:8000/data");
+        const data = await response.json();
+        
+        // 1. Filtra i extreu només el valor numèric de la clau "EMG"
+        const mV_values = data.data
+            // Assegura que només agafem els missatges de sensor (uplink)
+            .filter(item => item.uplink_message)
+            .map(item => {
+                const payload = item.uplink_message.decoded_payload;
+                // Accedeix a 'EMG' i el converteix a número (float) de manera segura, o 0 si falla
+                return parseFloat(payload?.EMG) || 0; 
+            });
+
+        // 2. Etiquetes (només per visualitzar el nombre de missatges)
+        const labels = Array.from({ length: mV_values.length }, (_, i) => `Msg ${i + 1}`);
+
+        const ctx = document.getElementById("chart").getContext("2d");
+
+        if (!chart) {
+            chart = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels,
+                    datasets: [
+                        { 
+                            label: "Esforç EMG (V)", // Títol actualitzat a Volts
+                            data: mV_values, 
+                            borderColor: "red", 
+                            backgroundColor: "rgba(255, 0, 0, 0.2)",
+                            fill: true,
+                            tension: 0.3 
+                        },
+                    ]
+                },
+                options: { 
+                    responsive: true,
+                    animation: false,
+                    scales: {
+                        y: {
+                            min: 0,   
+                            max: 5,   // <--- MÀXIM AJUSTAT per veure el 4.2V
+                            title: {
+                                display: true,
+                                text: 'Voltatge (V)' // Unitat ajustada
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            // Actualització ràpida del gràfic
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = mV_values;
+            chart.update();
+        }
+    } catch (e) { 
+        console.error("Error actualitzant gràfic:", e); 
+    }
+}
+
+setInterval(updateChart, 2000);
+updateChart();
+
+  /* --------- EXPORT --------- */
+  const exportStatus = document.getElementById("exportStatus");
+
+  async function downloadCSV(url, filename) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        exportStatus.textContent = "❌ Error en exportar les dades";
+        exportStatus.style.color = "red";
+        return;
+      }
+      const blob = await response.blob();
+      const link = document.createElement("a");
+      link.href = window.URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      exportStatus.textContent = "✅ Exportació completada!";
+      exportStatus.style.color = "green";
+    } catch {
+      exportStatus.textContent = "❌ Error de connexió";
+      exportStatus.style.color = "red";
+    }
+  }
+
+  document.getElementById("exportSensors").addEventListener("click", () => {
+    downloadCSV("http://127.0.0.1:8000/export/csv/sensors", "sensors.csv");
+  });
+
+  document.getElementById("exportApp").addEventListener("click", () => {
+    downloadCSV("http://127.0.0.1:8000/export/csv/app", "app_messages.csv");
+  });
+
+  document.getElementById("exportMongo").addEventListener("click", () => {
+    downloadCSV("http://127.0.0.1:8000/export/csv/mongo", "mongo_full.csv");
+  });
+
+</script>
+
+</body>
+</html>

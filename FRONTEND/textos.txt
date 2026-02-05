@@ -1,0 +1,13 @@
+
+
+
+
+Nowadays, with new technological breakthroughs, society has developed new ways to communicate and share information. Thanks to these advances, many crucial fields — such as healthcare — have started to use technology to help improve lives around the world.
+
+We are third-year university students with a strong interest in technology, telecommunications, and development. During this project, we have created a system designed to detect medical problems in remote environments. Not only was the system engineered, but an app was also developed to track the data emerging from the main sensor.
+
+Based on three main components — LoRa Gateway, Raspberry Pi, and Arduino — this project has made it possible to monitor and analyze health data efficiently and reliably.
+
+We are very pleased to share this project with the world and to help others! :)
+
+Pau, Sonia, Paula, Lua
